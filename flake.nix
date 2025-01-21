@@ -14,7 +14,8 @@
         specs = fromTOML (readFile "${p}/F.toml");
         locks = fromTOML (readFile "${p}/F.lock");
         locked = mapAttrs (n: v: v // (locks.${n} or {})) specs;
-        fetchF = v: let
+        fetchF = v:
+        let
           spec = split ":" v.spec;
           scheme = elemAt spec 0;
           url = if scheme == "github" then
@@ -28,13 +29,13 @@
             inherit url;
             sha256 = v.hash;
           };
-        srcs = mapAttrs (n: v: fetchF v) locked;
+        srcs = mapAttrs (n: v: v // { out = fetchF v; }) locked;
       in
         srcs;
 
       srcs = load ./.;
       g = pkgs: let
-        rust-toolchain = pkgs.fenix.fromManifestFile srcs.rust-manifest;
+        rust-toolchain = pkgs.fenix.fromManifestFile srcs.rust-manifest.out;
         rust = pkgs.fenix.combine (with rust-toolchain; [
           rustc cargo rust-src rustfmt clippy
         ]);
