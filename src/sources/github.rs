@@ -69,7 +69,7 @@ struct ListTags;
     variables_derives = "Debug",
     response_derives = "Debug"
 )]
-struct TagInfo;
+struct RefInfo;
 
 #[derive(GraphQLQuery)]
 #[graphql(
@@ -85,11 +85,11 @@ struct AccessTokens {
     value: HashMap<String, String>,
 }
 
-impl tag_info::TagInfoRepositoryRefTarget {
+impl ref_info::RefInfoRepositoryRefTarget {
     fn oid(&self) -> Option<&GitObjectID> {
         match &self.on {
-            tag_info::TagInfoRepositoryRefTargetOn::Tag(tag) => Some(&tag.target.oid),
-            tag_info::TagInfoRepositoryRefTargetOn::Commit => Some(&self.oid),
+            ref_info::RefInfoRepositoryRefTargetOn::Tag(tag) => Some(&tag.target.oid),
+            ref_info::RefInfoRepositoryRefTargetOn::Commit => Some(&self.oid),
             _ => None,
         }
     }
@@ -147,13 +147,13 @@ impl super::Source for GitHub {
                     inner: Lock { rev, tag: None },
                 }),
                 Spec::Tag { tag } => {
-                    let query = TagInfo::build_query(tag_info::Variables {
+                    let query = RefInfo::build_query(ref_info::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
                         q_tag: format!("refs/tags/{tag}"),
                     });
                     let response: octocrab::Result<
-                        graphql_client::Response<tag_info::ResponseData>,
+                        graphql_client::Response<ref_info::ResponseData>,
                     > = octocrab.graphql(&query).await;
                     let data = response?.anyhow()?;
                     log::debug!("{:?}", data);
@@ -214,7 +214,35 @@ impl super::Source for GitHub {
                         inner: new_lock,
                     })
                 }
-                Spec::Branch { branch } => todo!("{branch}"),
+                Spec::Branch { branch } => {
+                    let query = RefInfo::build_query(ref_info::Variables {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                        q_tag: format!("refs/heads/{branch}"),
+                    });
+                    let response: octocrab::Result<
+                        graphql_client::Response<ref_info::ResponseData>,
+                    > = octocrab.graphql(&query).await;
+                    let data = response?.anyhow()?;
+                    log::debug!("{:?}", data);
+                    let ref_ = data
+                        .repository
+                        .context("no repository")?
+                        .ref_
+                        .context("branch not found")?;
+                    let target = ref_.target.context("no target")?;
+                    let Some(oid) = target.oid() else {
+                        return Err(anyhow::anyhow!("no target commit: {target:?}"));
+                    };
+                    log::debug!("found direct match: {branch} => {oid}");
+                    Ok(LockResult {
+                        is_changed: lock.map(|l| l.rev != *oid).unwrap_or(true),
+                        inner: Lock {
+                            rev: oid.to_owned(),
+                            tag: None,
+                        },
+                    })
+                }
                 Spec::Release { pre_release } => {
                     let mut cursor = None;
                     loop {

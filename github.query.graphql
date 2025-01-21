@@ -26,7 +26,7 @@ query ListTags($owner: String!, $repo: String!, $after: String) {
     }
   }
 }
-query TagInfo($owner: String!, $repo: String!, $qTag: String!) {
+query RefInfo($owner: String!, $repo: String!, $qTag: String!) {
   repository(owner: $owner, name: $repo) {
     ref(qualifiedName: $qTag) {
       name
