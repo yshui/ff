@@ -75,6 +75,26 @@ struct AccessTokens {
     value: HashMap<String, String>,
 }
 
+impl tag_info::TagInfoRepositoryRefTarget {
+    fn oid(&self) -> Option<&GitObjectID> {
+        match &self.on {
+            tag_info::TagInfoRepositoryRefTargetOn::Tag(tag) => Some(&tag.target.oid),
+            tag_info::TagInfoRepositoryRefTargetOn::Commit => Some(&self.oid),
+            _ => None,
+        }
+    }
+}
+
+impl list_tags::ListTagsRepositoryRefsNodesTarget {
+    fn oid(&self) -> Option<&GitObjectID> {
+        match &self.on {
+            list_tags::ListTagsRepositoryRefsNodesTargetOn::Tag(tag) => Some(&tag.target.oid),
+            list_tags::ListTagsRepositoryRefsNodesTargetOn::Commit => Some(&self.oid),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
 struct NixConfig {
@@ -127,61 +147,58 @@ impl super::Source for GitHub {
                     > = octocrab.graphql(&query).await;
                     let data = response?.anyhow()?;
                     log::debug!("{:?}", data);
-                    let new_lock =
-                        if let Some(ref_) = data.repository.context("no repository")?.ref_ {
-                            let tag_info::TagInfoRepositoryRefTargetOn::Tag(tag_info) =
-                                ref_.target.context("no target")?.on
-                            else {
-                                return Err(anyhow::anyhow!("not a tag"));
-                            };
-                            log::debug!("found direct match: {tag} => {}", tag_info.target.oid);
-                            Lock {
-                                rev: tag_info.target.oid,
-                                tag: Some(tag),
-                            }
-                        } else {
-                            let mut cursor = None;
-                            let glob = glob::Pattern::new(&tag).context("invalid glob pattern")?;
-                            'find_tag: loop {
-                                let query = ListTags::build_query(list_tags::Variables {
-                                    owner: owner.to_string(),
-                                    repo: repo.to_string(),
-                                    after: cursor,
-                                });
-                                let response: octocrab::Result<
-                                    graphql_client::Response<list_tags::ResponseData>,
-                                > = octocrab.graphql(&query).await;
-                                let data = response?.anyhow()?;
-
-                                let refs = data
-                                    .repository
-                                    .context("no repository")?
-                                    .refs
-                                    .context("no refs")?;
-                                if !refs.page_info.has_next_page {
-                                    return Err(anyhow::anyhow!("no matching tag found"));
-                                }
-                                cursor = refs.page_info.end_cursor.clone();
-                                let Some(nodes) = refs.nodes else { continue };
-                                for tag in nodes {
-                                    let Some(tag) = tag else { continue };
-                                    if !glob.matches(&tag.name) {
-                                        continue;
-                                    }
-                                    log::debug!("found glob match: {}", tag.name);
-                                    let Some(list_tags::ListTagsRepositoryRefsNodesTargetOn::Tag(
-                                        target,
-                                    )) = tag.target.map(|t| t.on)
-                                    else {
-                                        continue;
-                                    };
-                                    break 'find_tag Lock {
-                                        rev: target.target.oid,
-                                        tag: Some(tag.name),
-                                    };
-                                }
-                            }
+                    let new_lock = if let Some(ref_) =
+                        data.repository.context("no repository")?.ref_
+                    {
+                        let target = ref_.target.context("no target")?;
+                        let Some(oid) = target.oid() else {
+                            return Err(anyhow::anyhow!("not a tag {target:?}"));
                         };
+                        log::debug!("found direct match: {tag} => {oid}");
+                        Lock {
+                            rev: oid.to_owned(),
+                            tag: Some(tag),
+                        }
+                    } else {
+                        let mut cursor = None;
+                        let glob = glob::Pattern::new(&tag).context("invalid glob pattern")?;
+                        'find_tag: loop {
+                            let query = ListTags::build_query(list_tags::Variables {
+                                owner: owner.to_string(),
+                                repo: repo.to_string(),
+                                after: cursor,
+                            });
+                            let response: octocrab::Result<
+                                graphql_client::Response<list_tags::ResponseData>,
+                            > = octocrab.graphql(&query).await;
+                            let data = response?.anyhow()?;
+
+                            let refs = data
+                                .repository
+                                .context("no repository")?
+                                .refs
+                                .context("no refs")?;
+                            if !refs.page_info.has_next_page {
+                                return Err(anyhow::anyhow!("no matching tag found"));
+                            }
+                            cursor = refs.page_info.end_cursor.clone();
+                            let Some(nodes) = refs.nodes else { continue };
+                            for tag in nodes {
+                                let Some(tag) = tag else { continue };
+                                if !glob.matches(&tag.name) {
+                                    continue;
+                                }
+                                log::debug!("found glob match: {}", tag.name);
+                                let Some(oid) = tag.target.as_ref().and_then(|t| t.oid()) else {
+                                    continue;
+                                };
+                                break 'find_tag Lock {
+                                    rev: oid.to_owned(),
+                                    tag: Some(tag.name),
+                                };
+                            }
+                        }
+                    };
                     Ok(LockResult {
                         is_changed: lock.map(|l| l.rev != new_lock.rev).unwrap_or(true),
                         inner: new_lock,
