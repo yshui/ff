@@ -12,10 +12,12 @@ pub enum Spec {
     /// a tag name or a glob pattern to match tags
     Tag { tag: String },
     /// git branch name
-    Branch { branch: String },
+    Branch {
+        #[serde(default)]
+        branch: Option<String>,
+    },
     Release {
         /// Whether to include pre-release versions
-        #[serde(default)]
         pre_release: bool,
     },
 }
@@ -79,6 +81,15 @@ struct RefInfo;
     response_derives = "Debug"
 )]
 struct ListReleases;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "github.schema.graphql",
+    query_path = "github.query.graphql",
+    variables_derives = "Debug",
+    response_derives = "Debug"
+)]
+struct DefaultBranch;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AccessTokens {
@@ -214,7 +225,9 @@ impl super::Source for GitHub {
                         inner: new_lock,
                     })
                 }
-                Spec::Branch { branch } => {
+                Spec::Branch {
+                    branch: Some(branch),
+                } => {
                     let query = RefInfo::build_query(ref_info::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
@@ -239,6 +252,30 @@ impl super::Source for GitHub {
                         is_changed: lock.map(|l| l.rev != *oid).unwrap_or(true),
                         inner: Lock {
                             rev: oid.to_owned(),
+                            tag: None,
+                        },
+                    })
+                }
+                Spec::Branch { branch: None } => {
+                    let query = DefaultBranch::build_query(default_branch::Variables {
+                        owner: owner.to_string(),
+                        repo: repo.to_string(),
+                    });
+                    let response: octocrab::Result<
+                        graphql_client::Response<default_branch::ResponseData>,
+                    > = octocrab.graphql(&query).await;
+                    let data = response?.anyhow()?;
+                    let default_branch = data
+                        .repository
+                        .context("no repository")?
+                        .default_branch_ref
+                        .context("no default branch")?;
+                    let target = default_branch.target.context("no target")?;
+                    log::debug!("found direct match: {} => {}", default_branch.name, target.oid);
+                    Ok(LockResult {
+                        is_changed: lock.map(|l| l.rev != target.oid).unwrap_or(true),
+                        inner: Lock {
+                            rev: target.oid,
                             tag: None,
                         },
                     })

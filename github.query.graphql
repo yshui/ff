@@ -68,3 +68,15 @@ query ListReleases($owner: String!, $repo: String!, $after: String) {
     }
   }
 }
+
+query DefaultBranch($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    defaultBranchRef {
+      name
+      target {
+        __typename
+        oid
+      }
+    }
+  }
+}

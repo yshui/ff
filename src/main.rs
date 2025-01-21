@@ -27,11 +27,13 @@ struct Lock {
     etag: Option<String>,
     unpack: bool,
 }
-
+fn default_unpack() -> bool {
+    true
+}
 #[derive(Debug, Serialize, Deserialize)]
 struct Spec {
     spec: String,
-    #[serde(default)]
+    #[serde(default = "default_unpack")]
     unpack: bool,
 }
 
