@@ -48,8 +48,7 @@ async fn run_one(
     let old_lock: Option<Lock> = lockv
         .as_ref()
         .and_then(|l| Lock::deserialize(l.clone()).ok());
-    let (_, inner_spec) = spec.spec.split_once(':').context("invalid spec")?;
-    let url = lock.url(inner_spec);
+    let url = lock.url(&spec.spec);
 
     eprintln!("{lock:?} {url}");
     let old_hash = old_lock.as_ref().map(|l| &l.hash);
@@ -105,8 +104,8 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let mpb = indicatif::MultiProgress::new();
     let specs: HashMap<String, toml::Value> =
-        toml::from_str(&std::fs::read_to_string("specs.toml")?)?;
-    let mut locks: HashMap<String, toml::Value> = std::fs::read_to_string("locks.toml")
+        toml::from_str(&std::fs::read_to_string("F.toml")?)?;
+    let mut locks: HashMap<String, toml::Value> = std::fs::read_to_string("F.lock")
         .map_err(anyhow::Error::from)
         .and_then(|s| toml::from_str(&s).map_err(anyhow::Error::from))
         .unwrap_or_default();
@@ -131,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    std::fs::write("locks.toml", toml::to_string(&locks)?)?;
+    std::fs::write("F.lock", toml::to_string(&locks)?)?;
 
     Ok(())
 }

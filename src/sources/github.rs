@@ -35,6 +35,7 @@ pub struct Lock {
 
 impl super::Lock for Lock {
     fn url(&self, spec: &str) -> url::Url {
+        let spec = spec.strip_prefix("github:").unwrap();
         let (owner, repo) = spec.split_once('/').unwrap();
         url::Url::parse(&format!(
             "https://github.com/{}/{}/archive/{}.tar.gz",
@@ -47,18 +48,6 @@ impl super::Lock for Lock {
     }
     fn as_dyn_serialize(&self) -> &dyn erased_serde::Serialize {
         self
-    }
-    fn as_debug(&self) -> &dyn std::fmt::Debug {
-        self
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    fn dyn_eq(&self, other: &dyn super::Lock) -> bool {
-        let Some(other) = other.as_any().downcast_ref::<Self>() else {
-            return false;
-        };
-        self.rev == other.rev
     }
 }
 
@@ -105,6 +94,7 @@ impl super::Source for GitHub {
     ) -> Pin<Box<dyn Future<Output = Result<super::LockResult<Self::Lock>, Self::Error>> + 'static>>
     {
         let lock = lock.cloned();
+        let spec = spec.strip_prefix("github:").unwrap().to_owned();
         Box::pin(async move {
             let nix_config: NixConfig = serde_json::from_slice(
                 &std::process::Command::new("nix")
