@@ -29,13 +29,13 @@
             inherit url;
             sha256 = v.hash;
           };
-        srcs = mapAttrs (n: v: v // { out = fetchF v; }) locked;
+        srcs = mapAttrs (n: v: v // { outPath = fetchF v; }) locked;
       in
         srcs;
 
       srcs = load ./.;
       g = pkgs: let
-        rust-toolchain = pkgs.fenix.fromManifestFile srcs.rust-manifest.out;
+        rust-toolchain = pkgs.fenix.fromManifestFile srcs.rust-manifest;
         rust = pkgs.fenix.combine (with rust-toolchain; [
           rustc cargo rust-src rustfmt clippy
         ]);
