@@ -1,0 +1,27 @@
+[package]
+name = "ff"
+description = "fast fetcher for nix sources"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+env_logger = "0.11.6"
+erased-serde = "0.4.5"
+futures-util = "0.3.31"
+glob = "0.3.2"
+graphql_client = "0.14.0"
+indicatif = { version = "0.17.9", features = ["tokio"] }
+itertools = "0.14.0"
+log = "0.4.22"
+octocrab = "0.42.1"
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "rustls-tls"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
+serde_repr = "0.1.19"
+serde_with = "3.12.0"
+ssri2 = "0.1.0"
+tokio = { version = "1.43.0", features = ["process", "rt-multi-thread", "macros"] }
+toml = "0.8.19"
+toml_edit = "0.22.22"
+url = "2.5.4"
