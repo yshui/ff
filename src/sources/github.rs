@@ -5,7 +5,7 @@ use anyhow::{Context as _, Ok};
 use graphql_client::GraphQLQuery;
 use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "lowercase", untagged)]
+#[serde(rename_all = "kebab-case", untagged)]
 pub enum Spec {
     /// git commit hash
     Rev { rev: String },
@@ -14,6 +14,7 @@ pub enum Spec {
     /// git branch name
     Branch { branch: String },
     Release {
+        /// Whether to include pre-release versions
         #[serde(default)]
         pre_release: bool,
     },
@@ -69,6 +70,15 @@ struct ListTags;
     response_derives = "Debug"
 )]
 struct TagInfo;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "github.schema.graphql",
+    query_path = "github.query.graphql",
+    variables_derives = "Debug",
+    response_derives = "Debug"
+)]
+struct ListReleases;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct AccessTokens {
@@ -205,7 +215,50 @@ impl super::Source for GitHub {
                     })
                 }
                 Spec::Branch { branch } => todo!("{branch}"),
-                Spec::Release { pre_release } => todo!("{pre_release}"),
+                Spec::Release { pre_release } => {
+                    let mut cursor = None;
+                    loop {
+                        let query = ListReleases::build_query(list_releases::Variables {
+                            owner: owner.to_string(),
+                            repo: repo.to_string(),
+                            after: cursor,
+                        });
+                        let response: octocrab::Result<
+                            graphql_client::Response<list_releases::ResponseData>,
+                        > = octocrab.graphql(&query).await;
+                        let data = response?.anyhow()?;
+                        let releases = data.repository.context("no repository")?.releases;
+                        let has_next_page = releases.page_info.has_next_page;
+                        cursor = releases.page_info.end_cursor.clone();
+                        let Some(releases) = releases.nodes else {
+                            return Err(anyhow::anyhow!("no release found"));
+                        };
+                        let release = releases.into_iter().flatten().find(|release| {
+                            if pre_release {
+                                true
+                            } else {
+                                !release.is_prerelease
+                            }
+                        });
+                        let Some(release) = release else {
+                            if has_next_page {
+                                continue;
+                            } else {
+                                return Err(anyhow::anyhow!("no release found"));
+                            }
+                        };
+
+                        let tag = release.tag.context("release is not a tag??")?;
+                        let tag_commit = release.tag_commit.context("tag has no commit??")?;
+                        break Ok(LockResult {
+                            is_changed: lock.map(|l| l.rev != tag_commit.oid).unwrap_or(true),
+                            inner: Lock {
+                                rev: tag_commit.oid,
+                                tag: Some(tag.name),
+                            },
+                        });
+                    }
+                }
             }
         })
     }
