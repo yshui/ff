@@ -19,7 +19,7 @@
           spec = split ":" v.spec;
           scheme = elemAt spec 0;
           url = if scheme == "github" then
-                  "https://github.com/${elemAt spec 1}/archive/${v.rev}.tar.gz"
+                  "https://github.com/${elemAt spec 2}/archive/${v.rev}.tar.gz"
                 else if scheme == "http" || scheme == "https" then
                   v.spec
                 else assert false; "";
