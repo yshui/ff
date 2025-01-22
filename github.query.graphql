@@ -11,10 +11,18 @@ query ListTags($owner: String!, $repo: String!, $after: String) {
         target {
           __typename
           oid
+          ... on Commit {
+            __typename
+            committedDate
+          }
           ... on Tag {
             target {
               __typename
               oid
+              ... on Commit {
+                __typename
+                committedDate
+              }
             }
           }
         }
@@ -33,12 +41,31 @@ query RefInfo($owner: String!, $repo: String!, $qTag: String!) {
       target {
         __typename
         oid
+        ... on Commit {
+            __typename
+            committedDate
+        }
         ... on Tag {
           target {
             __typename
             oid
+            ... on Commit {
+                __typename
+                committedDate
+            }
           }
         }
+      }
+    }
+  }
+}
+
+query ObjInfo($owner: String!, $repo: String!, $oid: GitObjectID!) {
+  repository(owner: $owner, name: $repo) {
+    object(oid: $oid) {
+      __typename
+      ... on Commit {
+        committedDate
       }
     }
   }
@@ -59,6 +86,7 @@ query ListReleases($owner: String!, $repo: String!, $after: String) {
         }
         tagCommit {
           oid
+          committedDate
         }
       }
       pageInfo {
@@ -76,6 +104,9 @@ query DefaultBranch($owner: String!, $repo: String!) {
       target {
         __typename
         oid
+        ... on Commit {
+            committedDate
+        }
       }
     }
   }
