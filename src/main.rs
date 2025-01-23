@@ -187,8 +187,6 @@ async fn main() -> anyhow::Result<()> {
     mpb.add(pb.clone());
     pb.set_message("Checking...");
     pb.tick();
-    mpb.println("TE$ST");
-    mpb.println("TE$ST");
     env_logger::Builder::from_default_env()
         .write_style(env_logger::WriteStyle::Always)
         .target(env_logger::Target::Pipe(Box::new(MultiProgressWriter {
