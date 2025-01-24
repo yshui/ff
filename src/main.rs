@@ -103,6 +103,9 @@ async fn run_one(
             if let Some(etag) = &old_lock.etag {
                 req = req.header("if-none-match", etag);
             }
+            if let Some(last_modified) = &old_lock.last_modified {
+                req = req.header("if-modified-since", last_modified.to_rfc2822());
+            }
         }
         let res = req.send().await.unwrap();
         let mut etag = res
