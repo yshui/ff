@@ -166,6 +166,14 @@ pub async fn fetch(
                 Action::Msg { msg } => {
                     pb.set_message(msg);
                 }
+                Action::Start {
+                    type_: ActivityType::Unknown,
+                    text,
+                    ..
+                } if text.starts_with("unpacking") => {
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                    pb.set_message("unpacking");
+                }
                 Action::Result {
                     id,
                     type_: ResultType::Progress,
@@ -187,7 +195,8 @@ pub async fn fetch(
                         }
                     } else if saved_total.is_none() || saved_total != Some(0) {
                         pb.set_style(
-                            ProgressStyle::with_template("{spinner} {prefix}: {msg} {bytes}").unwrap(),
+                            ProgressStyle::with_template("{spinner} {prefix}: {msg} {bytes}")
+                                .unwrap(),
                         );
                     }
 

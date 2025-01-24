@@ -251,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
     mpb.remove(&pb);
     mpb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
 
-    println!();
+    println!("\n");
     if !unchanged.is_empty() {
         println!("{}", style("Unchanged:").bold());
         for name in unchanged {

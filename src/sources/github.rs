@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{collections::HashMap, pin::Pin};
 
 use super::{DynLockFuture, LockResult, ResponseExt as _};
 use anyhow::{Context as _, Ok};
@@ -217,7 +217,7 @@ impl super::Source for GitHub {
                     let commit_date = if not_changed {
                         lock.as_ref().unwrap().commit_date
                     } else {
-                        pb.set_message(format!("Fetching information for commit {rev}"));
+                        pb.set_message(format!("fetching information for commit {rev}"));
                         let query = ObjInfo::build_query(obj_info::Variables {
                             owner: owner.to_string(),
                             repo: repo.to_string(),
@@ -251,6 +251,7 @@ impl super::Source for GitHub {
                     })
                 }
                 Spec::Tag { tag } => {
+                    pb.set_message(format!("checking if {tag} exists"));
                     let query = RefInfo::build_query(ref_info::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
@@ -274,6 +275,7 @@ impl super::Source for GitHub {
                                 commit_date: target.commit_date().context("tag not a commit")?,
                             }
                         } else {
+                            pb.set_message(format!("searching for latest tag matching \"{tag}\""));
                             let mut cursor = None;
                             let glob = glob::Pattern::new(&tag).context("invalid glob pattern")?;
                             'find_tag: loop {
@@ -332,6 +334,7 @@ impl super::Source for GitHub {
                 Spec::Branch {
                     branch: Some(branch),
                 } => {
+                    pb.set_message(format!("getting information for branch {branch}"));
                     let query = RefInfo::build_query(ref_info::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
@@ -366,6 +369,7 @@ impl super::Source for GitHub {
                     })
                 }
                 Spec::Branch { branch: None } => {
+                    pb.set_message(format!("getting information for default branch"));
                     let query = DefaultBranch::build_query(default_branch::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
