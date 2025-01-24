@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
-use super::{LockResult, ResponseExt as _};
+use super::{DynLockFuture, LockResult, ResponseExt as _};
 use anyhow::{Context as _, Ok};
 use chrono::FixedOffset;
 use graphql_client::GraphQLQuery;
@@ -187,14 +187,14 @@ impl super::Source for GitHub {
     fn schemes() -> &'static [&'static str] {
         &["github"]
     }
-    fn lock(
-        spec: String,
+    fn lock<'a>(
+        spec: &'a str,
         rev_spec: Self::RevisionSpec,
-        lock: Option<&Self::Lock>,
-    ) -> Pin<Box<dyn Future<Output = Result<super::LockResult<Self::Lock>, Self::Error>> + 'static>>
-    {
-        let lock = lock.cloned();
+        pb: &'a indicatif::ProgressBar,
+        lock: Option<&'a Self::Lock>,
+    ) -> Pin<Box<DynLockFuture<'a, Lock, anyhow::Error>>> {
         let spec = spec.strip_prefix("github:").unwrap().to_owned();
+        let lock = lock.cloned();
         Box::pin(async move {
             let nix_config: NixConfig = serde_json::from_slice(
                 &std::process::Command::new("nix")
@@ -213,10 +213,11 @@ impl super::Source for GitHub {
             let (owner, repo) = spec.split_once('/').unwrap();
             match rev_spec {
                 Spec::Rev { rev } => {
-                    let not_changed = lock.as_ref().map(|l| l.rev == rev).unwrap_or(false);
+                    let not_changed = lock.as_ref().map(|l| l.rev == *rev).unwrap_or(false);
                     let commit_date = if not_changed {
                         lock.as_ref().unwrap().commit_date
                     } else {
+                        pb.set_message(format!("Fetching information for commit {rev}"));
                         let query = ObjInfo::build_query(obj_info::Variables {
                             owner: owner.to_string(),
                             repo: repo.to_string(),

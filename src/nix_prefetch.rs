@@ -55,6 +55,7 @@ impl Field {
             _ => None,
         }
     }
+    #[allow(dead_code)]
     fn as_str(&self) -> Option<&str> {
         match self {
             Field::Str(s) => Some(s),
@@ -97,7 +98,13 @@ enum Action {
     },
 }
 
-pub async fn fetch(url: &url::Url, unpack: bool, pb: &ProgressBar) -> anyhow::Result<PrefetchResult> {
+pub async fn fetch(
+    spec: &str,
+    lock: &dyn super::sources::Lock,
+    unpack: bool,
+    pb: &ProgressBar,
+) -> anyhow::Result<PrefetchResult> {
+    let url = lock.url(spec);
     let mut cmd = Command::new("nix");
     cmd.args([
         "store",
@@ -168,14 +175,19 @@ pub async fn fetch(url: &url::Url, unpack: bool, pb: &ProgressBar) -> anyhow::Re
                     let total = fields[1].as_int().context("unexpected total")?;
                     if total != 0 {
                         if saved_total == Some(0) || saved_total.is_none() {
-                            pb.set_style(ProgressStyle::with_template("{spinner} {msg} {bar} {bytes}/{total_bytes}").unwrap());
+                            pb.set_style(
+                                ProgressStyle::with_template(
+                                    "{spinner} {prefix}: {msg} {bar} {bytes}/{total_bytes} {eta} left",
+                                )
+                                .unwrap(),
+                            );
                         }
                         if saved_total != Some(total) {
                             pb.set_length(total as u64);
                         }
                     } else if saved_total.is_none() || saved_total != Some(0) {
                         pb.set_style(
-                            ProgressStyle::with_template("{spinner} {msg} {bytes}").unwrap(),
+                            ProgressStyle::with_template("{spinner} {prefix}: {msg} {bytes}").unwrap(),
                         );
                     }
 

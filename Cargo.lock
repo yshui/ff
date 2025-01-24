@@ -409,6 +409,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "console",
  "env_logger",
  "erased-serde",
  "futures-util",

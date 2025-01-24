@@ -2,4 +2,5 @@
 etag = '"fa540d5d148a1e79f11b2a5df9363cba"'
 hash = "sha256-hpWM7NzUvjHg0xtIgm7ftjKCc1qcAeev45XqD3KMeQo="
 last_modified = "2025-01-08T01:24:29Z"
+spec = "https://static.rust-lang.org/dist/2025-01-08/channel-rust-nightly.toml"
 unpack = false

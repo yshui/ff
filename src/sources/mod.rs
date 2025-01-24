@@ -33,16 +33,18 @@ impl serde::Serialize for Box<dyn Lock> {
     }
 }
 
+type DynLockFuture<'a, L, E> = dyn Future<Output = Result<LockResult<L>, E>> + 'a;
 pub trait Source {
     type Lock: Lock + DeserializeOwned;
     type RevisionSpec: DeserializeOwned;
     type Error: std::fmt::Debug + Into<anyhow::Error>;
 
-    fn lock(
-        spec: String,
+    fn lock<'a>(
+        spec: &'a str,
         rev_spec: Self::RevisionSpec,
-        lock: Option<&Self::Lock>,
-    ) -> Pin<Box<dyn Future<Output = Result<LockResult<Self::Lock>, Self::Error>> + 'static>>;
+        pb: &'a indicatif::ProgressBar,
+        lock: Option<&'a Self::Lock>,
+    ) -> Pin<Box<DynLockFuture<'a, Self::Lock, Self::Error>>>;
     fn schemes() -> &'static [&'static str];
 }
 
@@ -50,6 +52,8 @@ mod http {
     use chrono::{DateTime, FixedOffset};
     use serde::{Deserialize, Serialize};
     use std::pin::Pin;
+
+    use super::DynLockFuture;
 
     pub struct Http;
     pub struct Spec;
@@ -76,16 +80,12 @@ mod http {
         type RevisionSpec = Spec;
         type Error = anyhow::Error;
 
-        fn lock(
-            _spec: String,
+        fn lock<'a>(
+            _spec: &'a str,
             _rev_spec: Self::RevisionSpec,
-            _lock: Option<&Self::Lock>,
-        ) -> Pin<
-            Box<
-                dyn std::future::Future<Output = Result<super::LockResult<Self::Lock>, Self::Error>>
-                    + 'static,
-            >,
-        > {
+            _pb: &'a indicatif::ProgressBar,
+            _lock: Option<&'a Self::Lock>,
+        ) -> Pin<Box<DynLockFuture<'a, Lock, anyhow::Error>>> {
             Box::pin(async { Ok(super::LockResult::Unchanged(Lock)) })
         }
 
@@ -119,13 +119,17 @@ mod http {
 }
 
 macro_rules! try_sources {
-    ($s:expr, $spec:expr, $rev:expr, $lock:expr, $($t:ty),+) => {
+    ($s:expr, $spec:expr, $rev:expr, $pb:expr, $lock:expr, $($t:ty),+) => {
         $(
             if <$t as Source>::schemes().contains(&$s) {
-                let rev_spec: <$t as Source>::RevisionSpec = serde::Deserialize::deserialize($rev).context("invalid rev spec")?;
-                let lock: Option<<$t as Source>::Lock> = $lock.map(|l| serde::Deserialize::deserialize(l)).transpose().context("invalid lock")?;
-                let lock = <$t as Source>::lock($spec.to_string(), rev_spec, lock.as_ref()).await?;
-                return Ok(lock.into_dyn());
+                let rev_spec: <$t as Source>::RevisionSpec = serde::Deserialize::deserialize($rev.clone())
+                    .context("invalid rev spec")?;
+                let lock: Option<<$t as Source>::Lock> = $lock
+                    .map(|l| serde::Deserialize::deserialize(l.clone()))
+                    .transpose()
+                    .context("invalid lock")?;
+                let lock = <$t as Source>::lock($spec, rev_spec, $pb, lock.as_ref()).await;
+                return Ok(lock?.into_dyn());
             }
         )+
     };
@@ -154,7 +158,9 @@ impl<T> LockResult<T> {
     ) -> LockResult<S> {
         match self {
             LockResult::Unchanged(inner) => LockResult::Unchanged(f_current(inner)),
-            LockResult::Changed(old, new) => LockResult::Changed(old.and_then(f_old), f_current(new)),
+            LockResult::Changed(old, new) => {
+                LockResult::Changed(old.and_then(f_old), f_current(new))
+            }
         }
     }
     pub fn current(&self) -> &T {
@@ -163,6 +169,7 @@ impl<T> LockResult<T> {
             LockResult::Changed(_, new) => new,
         }
     }
+    #[allow(dead_code)]
     pub fn old(&self) -> Option<&T> {
         match self {
             LockResult::Unchanged(_) => None,
@@ -192,12 +199,13 @@ impl<T: Lock + 'static> LockResult<T> {
 }
 
 pub async fn lock(
-    spec: String,
-    rev_spec: toml::Value,
-    lock: Option<toml::Value>,
+    spec: &str,
+    rev_spec: &toml::Value,
+    pb: &indicatif::ProgressBar,
+    lock: Option<&toml::Value>,
 ) -> anyhow::Result<LockResult<Box<dyn Lock>>> {
     let (scheme, _) = spec.split_once(':').context("invalid spec")?;
-    try_sources!(scheme, spec, rev_spec, lock, github::GitHub, http::Http);
+    try_sources!(scheme, spec, rev_spec, pb, lock, github::GitHub, http::Http);
     Err(anyhow::anyhow!("unknown scheme"))
 }
 

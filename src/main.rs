@@ -1,10 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    ops::Mul,
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use chrono::{DateTime, FixedOffset};
-use futures_util::{lock, FutureExt as _, StreamExt};
+use console::style;
+use futures_util::StreamExt;
 
 mod nix_prefetch;
 mod sources;
@@ -55,7 +53,8 @@ struct Lock {
     hash: ssri2::Integrity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     etag: Option<String>,
-    unpack: bool,
+    #[serde(flatten)]
+    spec: Spec,
 
     // Below: unused for change detection, but used for displaying human-readable information about the change.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,7 +64,7 @@ struct Lock {
 fn default_unpack() -> bool {
     true
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 struct Spec {
     spec: String,
     #[serde(default = "default_unpack")]
@@ -74,12 +73,13 @@ struct Spec {
 
 async fn run_one(
     name: &str,
-    pb: indicatif::ProgressBar,
+    pb: &indicatif::ProgressBar,
     specv: toml::Value,
     lockv: Option<toml::Value>,
 ) -> anyhow::Result<sources::LockResult<FullLock>> {
+    pb.set_prefix(name.to_string());
     let spec = Spec::deserialize(specv.clone())?;
-    let mut lock = sources::lock(spec.spec.clone(), specv, lockv.clone())
+    let mut lock = sources::lock(&spec.spec, &specv, pb, lockv.as_ref())
         .await
         .unwrap();
     let old_lock: Option<Lock> = lockv
@@ -90,17 +90,14 @@ async fn run_one(
     log::debug!("{lock:?} {url}");
     let old_hash = old_lock.as_ref().map(|l| &l.hash);
     // We can keep using the old hash in current lock if these conditions are met:
-    //   1. The `unpack` flag is unchanged in the spec.
+    //   1. The current spec is the same as the locked spec
     //   2. Lock returned by sources is unchanged.
     //   3. If the lock is mutable, then the etag returned by the server is also unchanged.
     let hash = old_hash.filter(|_| {
-        old_lock
-            .as_ref()
-            .map(|l| l.unpack == spec.unpack)
-            .unwrap_or_default()
-            && !lock.is_changed()
+        old_lock.as_ref().map(|l| l.spec == spec).unwrap_or(false) && !lock.is_changed()
     });
     let (hash, last_modified, etag) = if !lock.current().is_immutable() {
+        pb.set_message("checking for updates");
         let mut req = reqwest::Client::new().get(url.clone());
         if let Some(old_lock) = old_lock.as_ref() {
             if let Some(etag) = &old_lock.etag {
@@ -139,7 +136,8 @@ async fn run_one(
         log::debug!("no changes");
         hash.to_owned()
     } else {
-        let fetch = nix_prefetch::fetch(&url, spec.unpack, &pb).await?;
+        let fetch =
+            nix_prefetch::fetch(&spec.spec, lock.current().as_ref(), spec.unpack, pb).await?;
         fetch.hash
     };
     Ok(lock.map(
@@ -154,7 +152,7 @@ async fn run_one(
                 hash,
                 etag,
                 last_modified,
-                unpack: spec.unpack,
+                spec,
             },
             inner: l_curr,
         },
@@ -205,52 +203,67 @@ async fn main() -> anyhow::Result<()> {
         .map(|(name, spec)| {
             let lock = locks.get(name).cloned();
             let pb = mpb.add(indicatif::ProgressBar::new_spinner());
-            run_one(name, pb, spec.clone(), lock).map(move |res| (name.clone(), res))
-        })
-        .collect();
-    let results = futs.collect::<Vec<_>>().await;
-    let mut changed = HashMap::new();
-    let mut unchanged = HashSet::new();
-    for res in &results {
-        match res {
-            (name, Ok(lock)) => {
-                log::debug!("fetched {name} {lock:?}");
-                match &lock {
-                    sources::LockResult::Changed(old, current) => {
-                        changed.insert(name, (old.clone(), current.clone()));
+            async move {
+                match run_one(name, &pb, spec.clone(), lock).await {
+                    Ok(res) => {
+                        pb.set_style(
+                            indicatif::ProgressStyle::with_template("✓ {prefix}: done").unwrap(),
+                        );
+                        pb.finish();
+                        Some((name.clone(), res))
                     }
-                    sources::LockResult::Unchanged(_) => {
-                        unchanged.insert(name);
+                    Err(e) => {
+                        pb.set_style(
+                            indicatif::ProgressStyle::with_template("✗ {prefix}: {msg}").unwrap(),
+                        );
+                        pb.set_message(format!("error: {e}"));
+                        pb.finish();
+                        None
                     }
                 }
-                locks.insert(
-                    name.to_string(),
-                    toml::Value::try_from(lock.clone().into_current()).unwrap(),
-                );
             }
-            (name, Err(e)) => {
-                log::error!("failed to fetch {name} error: {:?}", e);
+        })
+        .collect();
+    let results = futs.filter_map(|x| async { x }).collect::<Vec<_>>().await;
+    let mut changed = HashMap::new();
+    let mut unchanged = HashSet::new();
+    for (name, lock) in &results {
+        log::debug!("fetched {name} {lock:?}");
+        match &lock {
+            sources::LockResult::Changed(old, current) => {
+                changed.insert(name, (old.clone(), current.clone()));
+            }
+            sources::LockResult::Unchanged(_) => {
+                unchanged.insert(name);
             }
         }
+        locks.insert(
+            name.to_string(),
+            toml::Value::try_from(lock.clone().into_current()).unwrap(),
+        );
     }
 
     std::fs::write("F.lock", toml::to_string(&locks)?)?;
-    pb.set_message("Done");
+    pb.set_message("");
     pb.finish();
     log::info!("Lock file updated");
+    mpb.remove(&pb);
+    mpb.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+
+    println!();
     if !unchanged.is_empty() {
-        log::info!("Unchanged:");
+        println!("{}", style("Unchanged:").bold());
         for name in unchanged {
-            log::info!("  {name}");
+            println!("  {name}");
         }
     }
     if !changed.is_empty() {
-        log::info!("Changed:");
+        println!("{}", style("Changed:").bold());
         for (name, (old, current)) in changed {
             if let Some(old) = old {
-                log::info!("  {name} [{} -> {}]", old.info(), current.info());
+                println!("  {name} [{} -> {}]", old.info(), current.info());
             } else {
-                log::info!("  {name} [∅ -> {}]", current.info());
+                println!("  {name} [∅ -> {}]", current.info());
             }
         }
     }
