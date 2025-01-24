@@ -126,7 +126,8 @@ async fn run_one(
             .headers()
             .get("last-modified")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| DateTime::parse_from_rfc2822(v).ok());
+            .and_then(|v| DateTime::parse_from_rfc2822(v).ok())
+            .or_else(|| old_lock.as_ref().and_then(|l| l.last_modified));
         (hash, last_modified, etag)
     } else {
         // If the lock points to content that is immutable, we don't need etag to detect changes.
