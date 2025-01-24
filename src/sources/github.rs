@@ -369,7 +369,7 @@ impl super::Source for GitHub {
                     })
                 }
                 Spec::Branch { branch: None } => {
-                    pb.set_message(format!("getting information for default branch"));
+                    pb.set_message("getting information for default branch");
                     let query = DefaultBranch::build_query(default_branch::Variables {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
