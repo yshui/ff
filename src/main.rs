@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, BTreeMap};
 
 use chrono::{DateTime, FixedOffset};
 use console::style;
@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let specs: HashMap<String, toml::Value> = toml::from_str(&std::fs::read_to_string("F.toml")?)?;
     log::debug!("specs: {:?}", specs);
-    let mut locks: HashMap<String, toml::Value> = std::fs::read_to_string("F.lock")
+    let mut locks: BTreeMap<String, toml::Value> = std::fs::read_to_string("F.lock")
         .map_err(anyhow::Error::from)
         .and_then(|s| toml::from_str(&s).map_err(anyhow::Error::from))
         .unwrap_or_default();
