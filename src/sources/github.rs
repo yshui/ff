@@ -6,27 +6,22 @@ use chrono::FixedOffset;
 use graphql_client::GraphQLQuery;
 use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "kebab-case", untagged)]
+#[serde(untagged)]
 pub enum Spec {
     /// git commit hash
     Rev { rev: String },
     /// a tag name or a glob pattern to match tags
     Tag { tag: String },
+    #[serde(rename_all = "kebab-case")]
+    Release {
+        /// Whether to include pre-release versions
+        pre_release: bool,
+    },
     /// git branch name
     Branch {
         #[serde(default)]
         branch: Option<String>,
     },
-    Release {
-        /// Whether to include pre-release versions
-        pre_release: bool,
-    },
-}
-
-impl Default for Spec {
-    fn default() -> Self {
-        Self::Release { pre_release: false }
-    }
 }
 
 #[serde_with::serde_as]
@@ -417,6 +412,7 @@ impl super::Source for GitHub {
                 Spec::Release { pre_release } => {
                     let mut cursor = None;
                     Ok(loop {
+                        pb.set_message("fetching information of latest releases");
                         let query = ListReleases::build_query(list_releases::Variables {
                             owner: owner.to_string(),
                             repo: repo.to_string(),
@@ -449,21 +445,19 @@ impl super::Source for GitHub {
 
                         let tag = release.tag.context("release is not a tag??")?;
                         let tag_commit = release.tag_commit.context("tag has no commit??")?;
+                        let new_lock = Lock {
+                            rev: tag_commit.oid,
+                            tag: Some(tag.name),
+                            commit_date: tag_commit.committed_date,
+                        };
                         if lock
                             .as_ref()
-                            .map(|l| l.rev == tag_commit.oid)
+                            .map(|l| l.rev == new_lock.rev)
                             .unwrap_or(false)
                         {
-                            break LockResult::Unchanged(lock.unwrap());
+                            break LockResult::Unchanged(new_lock);
                         } else {
-                            break LockResult::Changed(
-                                lock,
-                                Lock {
-                                    rev: tag_commit.oid,
-                                    tag: Some(tag.name),
-                                    commit_date: tag_commit.committed_date,
-                                },
-                            );
+                            break LockResult::Changed(lock, new_lock);
                         }
                     })
                 }
