@@ -277,8 +277,13 @@ impl super::Source for GitHub {
                         } else {
                             pb.set_message(format!("searching for latest tag matching \"{tag}\""));
                             let mut cursor = None;
+                            let mut has_next_page = true;
                             let glob = glob::Pattern::new(&tag).context("invalid glob pattern")?;
                             'find_tag: loop {
+                                if !has_next_page {
+                                    return Err(anyhow::anyhow!("no matching tag found"));
+                                }
+
                                 let query = ListTags::build_query(list_tags::Variables {
                                     owner: owner.to_string(),
                                     repo: repo.to_string(),
@@ -288,15 +293,14 @@ impl super::Source for GitHub {
                                     graphql_client::Response<list_tags::ResponseData>,
                                 > = octocrab.graphql(&query).await;
                                 let data = response?.anyhow()?;
+                                log::trace!("{data:?}");
 
                                 let refs = data
                                     .repository
                                     .context("no repository")?
                                     .refs
                                     .context("no refs")?;
-                                if !refs.page_info.has_next_page {
-                                    return Err(anyhow::anyhow!("no matching tag found"));
-                                }
+                                has_next_page = refs.page_info.has_next_page;
                                 cursor = refs.page_info.end_cursor.clone();
                                 let Some(nodes) = refs.nodes else { continue };
                                 for tag in nodes {
