@@ -6,7 +6,7 @@ ff
 
 ## Why
 
-Updating sources (i.e. the `src =` attribute in a derivation) is a messy job. If you do it manually, you'd need to update the commit hash, the version number, set nix hash to `lib.fakeHash`. Then run `nix build` and wait for it to give you an error, which you then copy and replace the `lib.fakeHash` with. Of course, people then invented `updateScript`, which attempts to automate this process. But, it's still messy, since `nix-update-script` has to evaluate nix expressions. Updating the nix file with the results is tricky too, since nix is a Turing complete language, this is no restriction on how `src` can be specified.
+Updating sources (i.e. the `src =` attribute in a derivation) is a messy job. If you do it manually, you'd need to update the commit hash, the version number, set nix hash to `lib.fakeHash`. Then run `nix build` and wait for it to give you an error, which you then copy and replace the `lib.fakeHash` with. Of course, people then invented `updateScript`, which attempts to automate this process. But, it's still messy, since `nix-update-script` has to evaluate nix expressions. Updating the nix file with the results is tricky too, since nix is a Turing complete language, there is no restriction on how `src` can be specified.
 
 Some packages attempt to alleviate this by having a separate `source.json`/`sources.json` on the side, so the sources are specified somewhere outside the nix file and are therefore easier to update. But those are ad-hoc, and there's no standard for the structure of these files and what information should be contained in them.
 
