@@ -1,14 +1,12 @@
 {
   inputs = {
-    nixpkgs.url = "nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-    fenix = {
-      inputs.nixpkgs.follows = "nixpkgs";
-      url = "github:nix-community/fenix";
+    rustup = {
+      url = "github:yshui/rustup.nix";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, fenix, ... } @ inputs:
+  outputs = { self, nixpkgs, flake-utils, rustup, ... } @ inputs:
     let
       load = p: with builtins; let
         specs = fromTOML (readFile "${p}/F.toml");
@@ -35,20 +33,17 @@
 
       srcs = load ./.;
       g = pkgs: let
-        rust-toolchain = pkgs.fenix.fromManifestFile srcs.rust-manifest;
-        rust = pkgs.fenix.combine (with rust-toolchain; [
-          rustc cargo rust-src rustfmt clippy
-        ]);
+        rust-toolchain = (pkgs.rustToolchainFromManifestFile srcs.rust-manifest).minimal;
         rustPlatform = (pkgs.makeRustPlatform {
-          cargo = rust-toolchain.cargo;
-          rustc = rust-toolchain.rustc;
+          cargo = rust-toolchain;
+          rustc = rust-toolchain;
         });
 
         inherit (rustPlatform) buildRustPackage bindgenHook;
 
       in {
         devShell = pkgs.mkShell {
-          nativeBuildInputs = [ rust ];
+          nativeBuildInputs = [ (rust-toolchain.override { extensions = [ "clippy" ]; }) ];
         };
         packages.default = buildRustPackage {
           name = "ff";
@@ -59,10 +54,10 @@
     in
     (flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system}.extend fenix.overlays.default;
+        pkgs = nixpkgs.legacyPackages.${system}.extend rustup.overlays.default;
       in (g pkgs)) // {
         overlays.default = final: prev: {
-          ff = (g (final.extend fenix.overlays.default)).packages.default;
+          ff = (g (final.extend rustup.overlays.default)).packages.default;
         };
       }
     ) // {
